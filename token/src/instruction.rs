@@ -137,6 +137,7 @@ impl TokenInstruction {
                 buf.push(4);
                 buf.extend_from_slice(&amount.to_le_bytes());
             }
+            // _ => buf.push(0)
             
         };
         buf
@@ -242,31 +243,31 @@ pub fn initialize_mint(
     })
 }
 
-/// Creates a `InitializeMint2` instruction.
-pub fn initialize_mint2(
-    token_program_id: &Pubkey,
-    mint_pubkey: &Pubkey,
-    mint_authority_pubkey: &Pubkey,
-    freeze_authority_pubkey: Option<&Pubkey>,
-    decimals:u8,
-) -> Result<Instruction, ProgramError> {
-    check_program_account(token_program_id)?;
-    let freeze_authority= freeze_authority_pubkey.cloned().into();
-    let data = TokenInstruction::InitializeMint2 {
-        mint_authority: *mint_authority_pubkey,
-        freeze_authority,
-        decimals,
-    }
-    .pack();
+// /// Creates a `InitializeMint2` instruction.
+// pub fn initialize_mint2(
+//     token_program_id: &Pubkey,
+//     mint_pubkey: &Pubkey,
+//     mint_authority_pubkey: &Pubkey,
+//     freeze_authority_pubkey: Option<&Pubkey>,
+//     decimals:u8,
+// ) -> Result<Instruction, ProgramError> {
+//     check_program_account(token_program_id)?;
+//     let freeze_authority= freeze_authority_pubkey.cloned().into();
+//     let data = TokenInstruction::InitializeMint2 {
+//         mint_authority: *mint_authority_pubkey,
+//         freeze_authority,
+//         decimals,
+//     }
+//     .pack();
 
-    let accounts = vec![AccountMeta::new(*mint_pubkey, false)];
+//     let accounts = vec![AccountMeta::new(*mint_pubkey, false)];
 
-    Ok(Instruction{
-        program_id: *token_program_id,
-        accounts,
-        data,
-    })
-}
+//     Ok(Instruction{
+//         program_id: *token_program_id,
+//         accounts,
+//         data,
+//     })
+// }
 
 pub fn initialize_account(
     token_program_id: &Pubkey,
