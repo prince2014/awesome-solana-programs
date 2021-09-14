@@ -83,23 +83,6 @@ pub enum TokenInstruction {
     CloseAccount,
 }
 
-/// Specifies the authority type for SetAuthority instruction
-#[repr(u8)]
-#[derive(Clone, Debug, PartialEq)]
-pub enum AuthorityType {
-    /// Authority to mint new tokens
-    MintTokens,
-
-    /// Authority to freeze any account associated with the Mint
-    FreezeAccount,
-
-    /// Owner of a given token accoutn
-    AccountOwner,
-
-    /// Authority to close a token account
-    CloseAccount,
-}
-
 impl TokenInstruction {
     /// Unpacks a byte buffer into a [TokenInstuction](enum.TokenInstruction.html).
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
@@ -127,6 +110,38 @@ impl TokenInstruction {
         })
     }
 
+    pub fn pack(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(size_of::<Self>());
+        match self {
+            &Self::InitializeMint {
+                ref mint_authority,
+                ref freeze_authority,
+                decimals,
+            } => {
+                buf.push(0);
+                buf.push(decimals);
+                buf.extend_from_slice(mint_authority.as_ref());
+                Self::pack_pubkey_option(freeze_authority, &mut buf);
+            }
+
+            Self::InitializeAccount => buf.push(1),
+            &Self::InitializeMultisig {m}=>  {
+                buf.push(2);
+                buf.push(m);
+            }
+            &Self::Transfer{amount} => {
+                buf.push(3);
+                buf.extend_from_slice(&amount.to_le_bytes());
+            }
+            &Self::Approve{amount} => {
+                buf.push(4);
+                buf.extend_from_slice(&amount.to_le_bytes());
+            }
+            
+        };
+        buf
+    }
+
     fn unpack_pubkey(input: &[u8]) -> Result<(Pubkey, &[u8]), ProgramError> {
         if input.len() >= 32 {
             let (key, rest) = input.split_at(32);
@@ -149,7 +164,32 @@ impl TokenInstruction {
         }
     }
 
-   
+    fn pack_pubkey_option(value: &COption<Pubkey>, buf: &mut Vec<u8>) {
+        match *value {
+            COption::Some(ref key) => {
+                buf.push(1);
+                buf.extend_from_slice(&key.to_bytes());
+            }
+            COption::None => buf.push(0),
+        }
+    }
+}
+
+/// Specifies the authority type for SetAuthority instruction
+#[repr(u8)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum AuthorityType {
+    /// Authority to mint new tokens
+    MintTokens,
+
+    /// Authority to freeze any account associated with the Mint
+    FreezeAccount,
+
+    /// Owner of a given token accoutn
+    AccountOwner,
+
+    /// Authority to close a token account
+    CloseAccount,
 }
 
 impl AuthorityType {
@@ -200,5 +240,81 @@ pub fn initialize_mint(
         accounts,
         data,
     })
+}
 
+/// Creates a `InitializeMint2` instruction.
+pub fn initialize_mint2(
+    token_program_id: &Pubkey,
+    mint_pubkey: &Pubkey,
+    mint_authority_pubkey: &Pubkey,
+    freeze_authority_pubkey: Option<&Pubkey>,
+    decimals:u8,
+) -> Result<Instruction, ProgramError> {
+    check_program_account(token_program_id)?;
+    let freeze_authority= freeze_authority_pubkey.cloned().into();
+    let data = TokenInstruction::InitializeMint2 {
+        mint_authority: *mint_authority_pubkey,
+        freeze_authority,
+        decimals,
+    }
+    .pack();
+
+    let accounts = vec![AccountMeta::new(*mint_pubkey, false)];
+
+    Ok(Instruction{
+        program_id: *token_program_id,
+        accounts,
+        data,
+    })
+}
+
+pub fn initialize_account(
+    token_program_id: &Pubkey,
+    account_pubkey: &Pubkey,
+    mint_pubkey: &Pubkey,
+    owner_pubkey: &Pubkey,
+) -> Result<Instruction, ProgramError> {
+    check_program_account(token_program_id)?;
+    let data = TokenInstruction::InitializeAccount.pack();
+
+    let accounts = vec![
+        AccountMeta::new(*account_pubkey, false),
+        AccountMeta::new_readonly(*mint_pubkey, false),
+        AccountMeta::new_readonly(*owner_pubkey, false),
+        AccountMeta::new(sysvar::rent::id(), false),
+    ];
+    
+    Ok(Instruction{
+        program_id: *token_program_id,
+        accounts,
+        data,
+    })
+}
+
+
+/// Creates a `Transfer` instruction.
+pub fn tranfer(
+    token_program_id: &Pubkey,
+    source_pubkey: &Pubkey,
+    destination_pubkey: &Pubkey,
+    authority_pubkey: &Pubkey,
+    signer_pubkeys: &[&Pubkey],
+    amount: u64,
+) -> Result<Instruction, ProgramError> {
+    check_program_account(token_program_id)?;
+    let data = TokenInstruction::Transfer{amount}.pack();
+
+    let mut accounts = Vec::with_capacity(3+signer_pubkeys.len());
+    accounts.push(AccountMeta::new(*source_pubkey, false));
+    accounts.push(AccountMeta::new(*destination_pubkey, false));
+    accounts.push(AccountMeta::new_readonly(*authority_pubkey, signer_pubkeys.is_empty()));
+    for signer_pubkey in signer_pubkeys.iter() {
+        accounts.push(AccountMeta::new_readonly(**signer_pubkey,true))
+    }
+
+    Ok(Instruction{
+        program_id: *token_program_id,
+        accounts,
+        data
+    })
 }
