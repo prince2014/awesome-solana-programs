@@ -42,7 +42,7 @@ pub enum TokenInstruction {
     },
 
     /// Transfer tokens from one account to another either directly or via 
-    /// a delefate.
+    /// a delegate.
     Transfer {
         /// The amount of tokens to transfer.
         amount: u64,
@@ -51,7 +51,7 @@ pub enum TokenInstruction {
     /// Approve a delegate. A delegate is given the authority over tokens on behalf
     /// of the source account's owner
     Approve {
-        /// The amount of tokens the delefate is approved for.
+        /// The amount of tokens the delegate is approved for.
         amount: u64
     },
 
@@ -81,6 +81,50 @@ pub enum TokenInstruction {
 
     /// Close an account by transferring all its SOL to the destination account
     CloseAccount,
+
+    /// Like InitializeAccount, but the owner pubkey is passed via instruction data
+    /// rather than the accounts list. This variant may be preferable when using
+    /// Cross Program Invocation from an instruction that does not need the owner's
+    /// `AccountInfo` otherwise.
+    ///
+    /// Accounts expected by this instruction:
+    ///
+    ///   0. `[writable]`  The account to initialize.
+    ///   1. `[]` The mint this account will be associated with.
+    ///   3. `[]` Rent sysvar
+    InitializeAccount2 {
+        /// The new account's owner/multisignature.
+        owner: Pubkey,
+    },
+
+    /// Like InitializeMultisig, but does not require the Rent sysvar to be provided
+    ///
+    /// Accounts expected by this instruction:
+    ///
+    ///   0. `[writable]` The multisignature account to initialize.
+    ///   1. ..1+N. `[]` The signer accounts, must equal to N where 1 <= N <=
+    ///      11.
+    InitializeMultisig2 {
+        /// The number of signers (M) required to validate this multisignature
+        /// account.
+        m: u8,
+    },
+
+    /// Like InitializeMint, but does not require the Rent sysvar to be provided.
+    /// 
+    /// Accounts expected by this instruction:
+    /// 
+    ///  0. `[writable]` The mint to initialize.
+    /// 
+    InitializeMint2{
+        /// Number of base 10 digits to the right of the decimal
+        decimals: u8,
+        /// The authority/multisignature of the mint.
+        mint_authority: Pubkey,
+        /// The freeze authority/multisignature of the mint.
+        freeze_authority: COption<Pubkey>
+
+    }
 }
 
 impl TokenInstruction {

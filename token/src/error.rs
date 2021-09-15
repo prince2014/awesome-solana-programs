@@ -40,7 +40,22 @@ pub enum TokenError {
     
     /// Invalid instruction
     #[error("Invalid instruction")]
-    InvalidInstruction
+    InvalidInstruction,
+
+    /// Operation overflowed
+    #[error("Operation overflowed")]
+    Overflow,
+
+    // 15
+    /// Account does not support specified authority type.
+    #[error("Account does not support specified authority type")]
+    AuthorityTypeNotSupported,
+    /// Account is frozen; all account operations will fail
+    #[error("Account is frozen")]
+    AccountFrozen,
+    /// Mint decimals mismatch between the client and mint
+    #[error("The provided decimals value different from the Mint decimals")]
+    MintDecimalsMismatch,
     
 }
 
