@@ -263,7 +263,7 @@ fn unpack_coption_key(src: &[u8; 36]) -> Result<COption<Pubkey>, ProgramError> {
 }
 
 fn pack_coption_u64(src: &COption<u64>, dst: &mut [u8; 12]){
-    let (tag, body) = array_refs![src, 4, 8];
+    let (tag, body) = mut_array_refs![dst, 4, 8];
     match src {
        COption::Some(amount) => {
            *tag = [1, 0, 0, 0];

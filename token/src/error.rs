@@ -28,7 +28,6 @@ pub enum TokenError {
     #[error("Owner does not match")]
     OwnerMismatch,
 
-
     // 10
     /// Instruction does not support native tokens
     #[error("Instruction does not support native tokens")]
@@ -37,7 +36,7 @@ pub enum TokenError {
     /// Non-native account can only be closed if its blanace is zero
     #[error("Non-native account can only be closed if its balance is zero")]
     NonNativeHashBalance,
-    
+
     /// Invalid instruction
     #[error("Invalid instruction")]
     InvalidInstruction,
@@ -56,7 +55,6 @@ pub enum TokenError {
     /// Mint decimals mismatch between the client and mint
     #[error("The provided decimals value different from the Mint decimals")]
     MintDecimalsMismatch,
-    
 }
 
 impl From<TokenError> for ProgramError {

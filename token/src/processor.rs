@@ -1,9 +1,11 @@
 //! Program state processor
 
+use std::{borrow::{Borrow, BorrowMut}, cmp::min};
+
 use crate::{
     error::TokenError,
-    instruction::{AuthorityType, TokenInstruction, MAX_SIGNERS },
-    state::{Account, Mint, Multisig}
+    instruction::{AuthorityType, TokenInstruction, MAX_SIGNERS},
+    state::{Account, Mint, Multisig},
 };
 
 use num_traits::FromPrimitive;
@@ -11,6 +13,7 @@ use solana_program::{
     account_info::{next_account_info, AccountInfo},
     decode_error::DecodeError,
     entrypoint::ProgramResult,
+    entrypoint_deprecated::ProgramResult,
     msg,
     program_error::{PrintProgramError, ProgramError},
     program_option::COption,
@@ -18,9 +21,10 @@ use solana_program::{
     pubkey::Pubkey,
     sysvar::{rent::Rent, Sysvar},
 };
+use solana_sdk::account::accounts_equal;
 
 /// Program state handler
-pub struct Processor{}
+pub struct Processor {}
 impl Processor {
     fn _process_initialize_mint(
         accounts: &[AccountInfo],
@@ -29,14 +33,13 @@ impl Processor {
         freeze_authority: COption<Pubkey>,
         rent_sysvar_account: bool,
     ) -> ProgramResult {
-       
         Ok(())
     }
 
     /// Processes an [InitializeMint](enum.TokenInstruction.html) instruction.
     pub fn process_initialize_mint(
         accounts: &[AccountInfo],
-        decimals:u8,
+        decimals: u8,
         mint_authority: Pubkey,
         freeze_authority: COption<Pubkey>,
     ) -> ProgramResult {
@@ -57,31 +60,25 @@ impl Processor {
         accounts: &[AccountInfo],
         owner: Option<&Pubkey>,
         rent_sysvar_account: bool,
-    )-> ProgramResult{
+    ) -> ProgramResult {
         Ok(())
     }
 
     /// Processes an [InitializeAccount](enum.TokenInstruction.htmml) instruction.
-    pub fn process_initialize_account(accounts: &[AccountInfo]) -> ProgramResult{
-        Self::_process_initialize_account(accounts,None, true)
+    pub fn process_initialize_account(accounts: &[AccountInfo]) -> ProgramResult {
+        Self::_process_initialize_account(accounts, None, true)
     }
 
     /// Processes an [InitializeAccount2](enum.TokenInstruction.html) instruction.
-    pub fn process_initialize_account2(
-        accounts: &[AccountInfo],
-        owner: Pubkey,
-    ) -> ProgramResult {
+    pub fn process_initialize_account2(accounts: &[AccountInfo], owner: Pubkey) -> ProgramResult {
         Self::_process_initialize_account(accounts, Some(&owner), true)
     }
 
     /// Processes an [InitializeAccount3](enum.TokenInstruction.html) instruction.
-    pub fn process_initialize_account3(
-        accounts: &[AccountInfo],
-        owner: Pubkey,
-    )->ProgramResult{
+    pub fn process_initialize_account3(accounts: &[AccountInfo], owner: Pubkey) -> ProgramResult {
         Self::_process_initialize_account(accounts, Some(&owner), false)
     }
-    
+
     fn _process_initialize_multisig(
         accounts: &[AccountInfo],
         m: u8,
@@ -91,19 +88,13 @@ impl Processor {
     }
 
     /// Processes a [InitializeMultisig](enum.TokenInstruction.html) instruction.
-    pub fn process_initialize_multisig(
-        accounts: &[AccountInfo],
-        m: u8
-    ) -> ProgramResult {
-       Self::_process_initialize_multisig(accounts, m, true)
+    pub fn process_initialize_multisig(accounts: &[AccountInfo], m: u8) -> ProgramResult {
+        Self::_process_initialize_multisig(accounts, m, true)
     }
 
     /// Processes a [InitializeMultisig2](enum.TokenInstruction.html) instruction.
-    pub fn process_initialize_multisig2(
-        accounts: &[AccountInfo],
-        m: u8
-    ) -> ProgramResult {
-       Self::_process_initialize_multisig(accounts, m, false)
+    pub fn process_initialize_multisig2(accounts: &[AccountInfo], m: u8) -> ProgramResult {
+        Self::_process_initialize_multisig(accounts, m, false)
     }
 
     /// Processes a [Transfer](enum.TokenInstruction.html) instruction.
@@ -111,7 +102,7 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         amount: u64,
-        expected_decimals: Option<u8>
+        expected_decimals: Option<u8>,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
 
@@ -137,7 +128,7 @@ impl Processor {
         }
 
         if source_account.mint != dest_account.mint {
-            return Err(TokenError::MintMismatch.into())
+            return Err(TokenError::MintMismatch.into());
         }
 
         if let Some((mint_info, expected_decimals)) = expected_mint_info {
@@ -190,7 +181,7 @@ impl Processor {
             .amount
             .checked_sub(amount)
             .ok_or(TokenError::Overflow)?;
-        dest_account.amount  = dest_account
+        dest_account.amount = dest_account
             .amount
             .checked_add(amount)
             .ok_or(TokenError::Overflow)?;
@@ -200,7 +191,7 @@ impl Processor {
             **source_account_info.lamports.borrow_mut() = source_starting_lamports
                 .checked_sub(amount)
                 .ok_or(TokenError::Overflow)?;
-            
+
             let dest_starting_lamports = dest_account_info.lamports();
             **dest_account_info.lamports.borrow_mut() = dest_starting_lamports
                 .checked_add(amount)
@@ -210,6 +201,50 @@ impl Processor {
         Account::pack(source_account, &mut source_account_info.data.borrow_mut())?;
         Account::pack(dest_account, &mut dest_account_info.data.borrow_mut())?;
 
+        Ok(())
+    }
+
+    /// Process an [Approve](enum.TokenInstruction.html) instruction.
+    pub fn process_approve(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        amount: u64,
+        expected_decimals: Option<u8>,
+    ) -> ProgramResult {
+        let account_info_iter = &mut account.iter();
+        let source_account_info = next_account_info(account_info_iter)?;
+
+        let expected_mint_info = if let Some(expected_decimals) = expected_decimals {
+            Some((next_account_info(account_info_iter)?, expected_decimals))
+        } else {
+            None
+        };
+
+        let delegate_info = next_account_info(account_info_iter)?;
+        let owner_info = next_account_info(account_info_iter)?;
+
+        let mut source_account = Account::unpack(&source_account_info.data.borrow())?;
+        if source_account.is_frozen() {
+            return Err(TokenError::AccountFrozen.into());
+        }
+
+        if let Some((mint_info, expected_decimals)) = expected_mint_info {
+            if source_account.mint != mint_info.key {
+                return Err(TokenError::MintMismatch.into());
+            }
+
+            let mint = Mint::unpack(&mint_info.data.borrow_mut())?
+            if expected_decimals != *mint_info.key{
+                return Err(TokenError::MintDecimalsMismatch.into());
+            }
+        }
+
+        Self::validate_owner(program_id, &source_account_info, owner_info, account_info_iter.as_slice())?;
+
+        source_account_info.delegate = COption::Some(*delegate_info.key);
+        source_account.delegated_amount = amount;
+
+        Account::pack(source_account, &mut source_account_info.borrow_mut());
         Ok(())
     }
 
@@ -227,7 +262,7 @@ impl Processor {
                 Self::process_initialize_mint(accounts, decimals, mint_authority, freeze_authority)
             }
 
-            TokenInstruction::InitializeMint2{
+            TokenInstruction::InitializeMint2 {
                 decimals,
                 mint_authority,
                 freeze_authority,
@@ -255,13 +290,20 @@ impl Processor {
                 msg!("Instruction: InintializeMultisig");
                 Self::process_initialize_multisig(accounts, m)
             }
-
+            TokenInstruction::Transfer { amount } => todo!(),
+            TokenInstruction::Approve { amount } => todo!(),
+            TokenInstruction::Revoke => todo!(),
+            TokenInstruction::SetAuthority {
+                authority_type,
+                new_authority,
+            } => todo!(),
+            TokenInstruction::MintTo { amount } => todo!(),
+            TokenInstruction::Burn { amount } => todo!(),
+            TokenInstruction::CloseAccount => todo!(),
             // TokenInstruction::Transfer {amount} => {
             //     msg!("Instruction: Transfer"):
             //     Self::process_transfer()
             // }
-
-
         }
     }
 
@@ -295,7 +337,7 @@ impl Processor {
             if num_signers < multisig.m {
                 return Err(ProgramError::MissingRequiredSignature);
             }
-           return Ok(())
+            return Ok(());
         } else if !owner_account_info.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
         }

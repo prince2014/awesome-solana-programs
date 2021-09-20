@@ -154,6 +154,7 @@ impl TokenInstruction {
         })
     }
 
+    /// Packs a [TokenInstruction](enum.TokenInstruction.html) into a byte buffer.
     pub fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
@@ -181,6 +182,19 @@ impl TokenInstruction {
                 buf.push(4);
                 buf.extend_from_slice(&amount.to_le_bytes());
             }
+            TokenInstruction::InitializeMint { decimals, mint_authority, freeze_authority } => todo!(),
+            TokenInstruction::InitializeAccount => todo!(),
+            TokenInstruction::InitializeMultisig { m } => todo!(),
+            TokenInstruction::Transfer { amount } => todo!(),
+            TokenInstruction::Approve { amount } => todo!(),
+            TokenInstruction::Revoke => todo!(),
+            TokenInstruction::SetAuthority { authority_type, new_authority } => todo!(),
+            TokenInstruction::MintTo { amount } => todo!(),
+            TokenInstruction::Burn { amount } => todo!(),
+            TokenInstruction::CloseAccount => todo!(),
+            TokenInstruction::InitializeAccount2 { owner } => todo!(),
+            TokenInstruction::InitializeMultisig2 { m } => todo!(),
+            TokenInstruction::InitializeMint2 { decimals, mint_authority, freeze_authority } => todo!(),
             // _ => buf.push(0)
             
         };
@@ -313,6 +327,7 @@ pub fn initialize_mint(
 //     })
 // }
 
+/// Creates a `InitializeAccount` instruction.
 pub fn initialize_account(
     token_program_id: &Pubkey,
     account_pubkey: &Pubkey,
