@@ -9,18 +9,7 @@ use crate::{
 };
 
 use num_traits::FromPrimitive;
-use solana_program::{
-    account_info::{next_account_info, AccountInfo},
-    decode_error::DecodeError,
-    entrypoint::ProgramResult,
-    entrypoint_deprecated::ProgramResult,
-    msg,
-    program_error::{PrintProgramError, ProgramError},
-    program_option::COption,
-    program_pack::{IsInitialized, Pack},
-    pubkey::Pubkey,
-    sysvar::{rent::Rent, Sysvar},
-};
+use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, entrypoint_deprecated::ProgramResult, msg, program_error::{PrintProgramError, ProgramError}, program_option::COption, program_pack::{IsInitialized, Pack}, pubkey::{self, Pubkey}, sysvar::{rent::Rent, Sysvar}};
 use solana_sdk::account::accounts_equal;
 
 /// Program state handler
@@ -211,7 +200,7 @@ impl Processor {
         amount: u64,
         expected_decimals: Option<u8>,
     ) -> ProgramResult {
-        let account_info_iter = &mut account.iter();
+        let account_info_iter = &mut accounts.iter();
         let source_account_info = next_account_info(account_info_iter)?;
 
         let expected_mint_info = if let Some(expected_decimals) = expected_decimals {
@@ -248,6 +237,108 @@ impl Processor {
         Ok(())
     }
 
+    /// Processes an [Approve](enum.TokenInstruction.html) instruction.
+    pub fn process_revoke(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let source_account_info = next_account_info(account_info_iter)?;
+        
+        let mut source_account = Account::unpack(&source_account_info.data.borrow())?;
+        
+        let owner_info = next_account_info(account_info_iter)?;
+
+        if source_account.is_frozen() {
+            return Err(TokenError::AccountFrozen.into());
+        }
+
+        Self::validate_owner(program_id, &source_account.owner, owner_info, account_info_iter.as_slice())?;
+
+        source_account.delegate = COption::None;
+        source_account.delegated_amount = 0;
+
+        Account::pack(source_account, &mut source_account_info.data.borrow_mut())?;
+
+        Ok(()) 
+  }
+
+  pub fn process_set_authority(
+      program_id: &Pubkey,
+      accounts: &[AccountInfo],
+      authority_type: AuthorityType,
+      new_authority: COption<Pubkey>,
+  ) -> ProgramResult {
+      let account_info_iter = &mut accounts.iter();
+      let account_info = next_account_info(account_info_iter)?;
+      let authority_info = next_account_info(account_info_iter)?;
+
+      if account_info.data_len() == Account::get_packed_len() {
+        let mut account = Account::unpack(&account_info.data.borrow())?;
+        
+        if account.is_frozen() {
+              return Err(TokenError::AccountFrozen.into());
+          }
+
+        match authority_type {
+            AuthorityType::AccountOwner => {
+                Self::validate_owner(
+                    program_id, &account.owner, authority_info, account_info_iter.as_slice(),
+                )?;
+                if let COption::Some(authority) = new_authority {
+                    account.owner = authority;
+                } else {
+                    return Err(TokenError::InvalidInstruction.into());
+                }
+
+                account.delegate = COption::None;
+                account.delegated_amount = 0;
+
+                if account.is_native() {
+                    account.close_authority = COption::None;
+                }
+            }
+            AuthorityType::CloseAccount => {
+                let authority = account.close_authority.unwrap_or(account.owner);
+                Self::validate_owner(
+                    program_id, 
+                    &authority, authority_info, account_info_iter.as_slice(),
+                )?;
+                account.close_authority = new_authority;
+            }
+
+            _ =>{
+                return  Err(TokenError::AuthorityTypeNotSupported.into());
+            }
+        }
+        Account::pack(account, &mut account_info.data.borrow_mut())?;
+    } else if account_info.data_len() == Mint::get_packed_len() {
+          let mut mint = Mint::unpack(&account_info.data.borrow())?;
+          match authority_type {
+              AuthorityType::MintTokens => {
+                let mint_authority = mint
+                    .mint_authority
+                    .ok_or(Into::<ProgramError>::into(TokenError::FixedSupply))?;
+                Self::validate_owner(program_id, &mint_authority, authority_info, account_info_iter.as_slice(),)?;
+                mint.mint_authority = new_authority;
+              }
+              AuthorityType::FreezeAccount => {
+                  let freeze_authority = mint
+                  .freeze_authority
+                  .ok_or(Into::<ProgramError>::into(TokenError::MintCannotFreeze))?;
+                  Self::validate_owner(program_id, &freeze_authority, authority_info,
+                     account_info_iter.as_slice(),)?;
+                    mint.freeze_authority = new_authority;
+              }
+
+              _ => {
+                  return Err(TokenError::AuthorityTypeNotSupported.into());
+              }
+          }
+          Mint::pack(mint, &mut account_info.data.borrow_mut())?;
+      } else {
+          return  Err(ProgramError::InvalidArgument);
+      }
+
+    Ok(())
+  }
     /// Processes an [Instruction](enum.Instruction.html).
     pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], input: &[u8]) -> ProgramResult {
         let instruction = TokenInstruction::unpack(input)?;

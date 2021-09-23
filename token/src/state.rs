@@ -1,11 +1,13 @@
+//! State transition types
+
 use crate::instruction::MAX_SIGNERS;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use num_enum::TryFromPrimitive;
 use solana_program::{
-    program_error:: ProgramError,
-    program_option:: COption,
-    program_pack:: { IsInitialized, Pack, Sealed},
-    pubkey:: Pubkey,
+    program_error::ProgramError,
+    program_option::COption,
+    program_pack::{IsInitialized, Pack, Sealed},
+    pubkey::Pubkey,
 };
 
 /// Mint data.
@@ -20,18 +22,18 @@ pub struct Mint {
 }
 
 impl Sealed for Mint {}
-impl IsInitialized for Mint{
+impl IsInitialized for Mint {
     fn is_initialized(&self) -> bool {
         self.is_initialized
-    } 
+    }
 }
 
 impl Pack for Mint {
     const LEN: usize = 82;
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let src = array_ref![src, 0, 82];
-        let (mint_authority, supply, decimals, is_initialized, freeze_authority) = 
-        array_refs![src, 36, 8, 1, 1, 36];
+        let (mint_authority, supply, decimals, is_initialized, freeze_authority) =
+            array_refs![src, 36, 8, 1, 1, 36];
         let mint_authority = unpack_coption_key(mint_authority)?;
         let supply = u64::from_le_bytes(*supply);
         let decimals = decimals[0];
@@ -129,7 +131,6 @@ impl Pack for Account {
             is_native: unpack_coption_u64(is_native)?,
             delegated_amount: u64::from_le_bytes(*delegated_amount),
             close_authority: unpack_coption_key(close_authority)?,
-            
         })
     }
 
@@ -164,10 +165,8 @@ impl Pack for Account {
         pack_coption_u64(is_native, is_native_dst);
         *delegated_amount_dst = delegated_amount.to_le_bytes();
         pack_coption_key(close_authority, close_authority_dst);
-
     }
 }
-
 
 /// Account state.
 #[repr(u8)]
@@ -184,7 +183,6 @@ impl Default for AccountState {
         AccountState::Uninitialized
     }
 }
-
 
 // Helpers
 fn pack_coption_key(src: &COption<Pubkey>, dst: &mut [u8; 36]) {
@@ -212,7 +210,7 @@ pub struct Multisig {
 }
 impl Sealed for Multisig {}
 impl IsInitialized for Multisig {
-    fn is_initialized(&self) -> bool{
+    fn is_initialized(&self) -> bool {
         self.is_initialized
     }
 }
@@ -262,16 +260,16 @@ fn unpack_coption_key(src: &[u8; 36]) -> Result<COption<Pubkey>, ProgramError> {
     }
 }
 
-fn pack_coption_u64(src: &COption<u64>, dst: &mut [u8; 12]){
+fn pack_coption_u64(src: &COption<u64>, dst: &mut [u8; 12]) {
     let (tag, body) = mut_array_refs![dst, 4, 8];
     match src {
-       COption::Some(amount) => {
-           *tag = [1, 0, 0, 0];
-           *body = amount.to_le_bytes();
-       }
-       COption::None => {
-           *tag = [0; 4];
-       }
+        COption::Some(amount) => {
+            *tag = [1, 0, 0, 0];
+            *body = amount.to_le_bytes();
+        }
+        COption::None => {
+            *tag = [0; 4];
+        }
     }
 }
 
