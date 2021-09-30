@@ -9,7 +9,7 @@ use crate::{
 };
 
 use num_traits::FromPrimitive;
-use solana_program::{account_info::{next_account_info, AccountInfo}, decode_error::DecodeError, entrypoint::ProgramResult, entrypoint_deprecated::ProgramResult, msg, program_error::{PrintProgramError, ProgramError}, program_option::COption, program_pack::{IsInitialized, Pack}, pubkey::{self, Pubkey}, sysvar::{rent::Rent, Sysvar}};
+use solana_program::{account_info::{self, AccountInfo, next_account_info}, decode_error::DecodeError, entrypoint::ProgramResult, entrypoint_deprecated::ProgramResult, msg, program_error::{PrintProgramError, ProgramError}, program_option::COption, program_pack::{IsInitialized, Pack}, pubkey::{self, Pubkey}, sysvar::{rent::Rent, Sysvar}};
 use solana_sdk::account::accounts_equal;
 
 /// Program state handler
@@ -396,7 +396,7 @@ impl Processor {
     }
 
     /// Processes a [Burn](enum.TokenInstruction.html) instruction.
-    pub fn procee_burn(
+    pub fn process_burn(
         program_id: &Pubkey,
         accounts:&[AccountInfo],
         amount: u64,
@@ -475,6 +475,42 @@ impl Processor {
         Ok(())
     }
 
+    pub fn process_close_account(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo]
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let source_account_info = next_account_info(account_info_iter)?;
+        let dest_account_info = next_account_info(account_info_iter)?;
+        let authority_info = next_account_info(account_info_iter)?;
+
+        let mut source_account = Account::unpack(&source_account_info.data.borrow())?;
+        if !source_account.is_native() && source_account.amount != 0 {
+            return Err(TokenError::NonNativeHasBalance.into());
+        }
+
+        let authority = source_account
+          .close_authority
+          .unwrap_or(source_account.owner);
+        
+        Self::validate_owner(
+            program_id,
+            &authority, 
+            authority_info, 
+        account_info_iter.as_slice(),
+        )?;
+        let dest_starting_lamports = dest_account_info.lamports();
+        **dest_account_info.lamports.borrow_mut() = dest_starting_lamports
+            .checked_add(source_account_info.lamports())
+            .ok_or(TokenError::Overflow)?;
+            
+        **source_account_info.lamports.borrow_mut() = 0;
+        source_account.amount = 0;
+
+        Account::pack(source_account, &mut source_account_info.data.borrow_mut())?;
+        Ok(())
+    }
+
     /// Processes an [Instruction](enum.Instruction.html).
     pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], input: &[u8]) -> ProgramResult {
         let instruction = TokenInstruction::unpack(input)?;
@@ -517,15 +553,33 @@ impl Processor {
                 msg!("Instruction: InintializeMultisig");
                 Self::process_initialize_multisig(accounts, m)
             }
-            TokenInstruction::Transfer { amount } => todo!(),
-            TokenInstruction::Approve { amount } => todo!(),
-            TokenInstruction::Revoke => todo!(),
+            TokenInstruction::Transfer { amount } => {
+                msg!("Instruction: Transfer");
+                Self::process_transfer(program_id, accounts, amount, None)
+            },
+            TokenInstruction::Approve { amount } => {
+                msg!("Instruction: Approve");
+                Self::process_approve(program_id, accounts, amount,None)
+            },
+            TokenInstruction::Revoke => {
+                msg!("Instruction: Revoke");
+                Self::process_revoke(program_id, accounts)
+            },
             TokenInstruction::SetAuthority {
                 authority_type,
                 new_authority,
-            } => todo!(),
-            TokenInstruction::MintTo { amount } => todo!(),
-            TokenInstruction::Burn { amount } => todo!(),
+            } => {
+                msg!("Instruction: SetAuthority");
+                Self::process_set_authority(program_id, accounts, authority_type, new_authority)
+            },
+            TokenInstruction::MintTo { amount } =>{
+                msg!("Instruction MintTo");
+                Self::process_mint_to(program_id, accounts, amount, None)
+            },
+            TokenInstruction::Burn { amount } => {
+                msg!("Instruction: Burn");
+                Self::process_burn(program_id, accounts, amount, None)
+            },
             TokenInstruction::CloseAccount => todo!(),
             // TokenInstruction::Transfer {amount} => {
             //     msg!("Instruction: Transfer"):
@@ -570,5 +624,38 @@ impl Processor {
         }
 
         Ok(())
+    }
+}
+
+impl PrintProgramError for TokenError {
+    fn print<E>(&self)
+    where E: 'static + std::error::Error + DecodeError<E> + PrintProgramError + FromPrimitive,
+    {
+        match self {
+            TokenError::NotRentExempt => msg!("Error: Lamport balance below rent-exempt threshold"),
+            TokenError::InsufficientFunds => msg!("Error: insufficient funds"),
+            TokenError::InvalidMint => msg!("Error: Invalid Mint"),
+            TokenError::MintMismatch => msg!("Error: Account not associated with their Mint"),
+            TokenError::OwnerMismatch => msg!("Error: owner does not match"),
+            TokenError::FixedSupply => msg!("Errror: the total supply of this tokne is fixed"),
+            TokenError::AlreadyInUse => msg!("Error: account or token already in use"),
+            TokenError::InvalidNumberOfProvidedSigners => msg!("Error: Invalid number of provided signers"),
+            TokenError::InvalidNumberOfRequiredSigners => msg!("Error: Invalid number of required signers"),
+            TokenError::UninitializedState => msg!("Error: State is unintialized"),
+            TokenError::NativeNotSupported => msg!("Error: Instruction does not support native tokens"),
+            TokenError::NonNativeHasBalance => {
+                msg!("Error: Non-native account can only be closed if its balance if zero")
+            }
+            TokenError::InvalidInstruction => msg!("Error: Invalid instruction"),
+            TokenError::InvalidState => msg!("Error: Invalid account state for operation"),
+            TokenError::Overflow => msg!("Error: Operation overflowed"),
+            TokenError::AuthorityTypeNotSupported => {
+                msg!("Error: Account does not support specified authority type")
+            }
+            TokenError::MintCannotFreeze => msg!("Error: This token mint cannot freeze accounts"),
+            TokenError::AccountFrozen => msg!("Error: Account is frozen"),
+            TokenError::MintDecimalsMismatch => msg!("Error: decimals diffrent from the Mint decimals"),
+            TokenError::NonNativeNotSupported => msg!("Error: Instruction dose not support non-native tokens"),
+        }
     }
 }
