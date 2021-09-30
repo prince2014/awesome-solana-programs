@@ -339,6 +339,142 @@ impl Processor {
 
     Ok(())
   }
+
+    /// Processes a [MintTo](enum.TokenInstruction.html) instruction.
+    pub fn process_mint_to(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        amount: u64,
+        expected_decimals: Option<u8>,
+    ) ->ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let mint_info = next_account_info(account_info_iter)?;
+        let dest_account_info = next_account_info(account_info_iter)?;
+        let owner_info = next_account_info(account_info_iter)?;
+
+        let mut dest_account = Account::unpack(&dest_account_info.data.borrow())?;
+        if dest_account.is_frozen() {
+            return Err(TokenError::AccountFrozen.into());
+        }
+        if dest_account.is_native() {
+            return Err(TokenError::NativeNotSupported.into());
+        }
+        if mint_info.key != &dest_account.mint {
+            return Err(TokenError::MintMismatch.into());
+        }
+
+        let mut mint = Mint::unpack(&mint_info.data.borrow())?;
+        if let Some(expected_decimals) = expected_decimals {
+            if expected_decimals != mint.decimals {
+                return Err(TokenError::MintDecimalsMismatch.into());
+            }
+        }
+        match mint.mint_authority {
+            COption::Some(mint_authority) => Self::validate_owner(
+                program_id,
+                 &mint_authority, 
+                 owner_info, 
+                 account_info_iter.as_slice(),
+            )?,
+            COption::None => return  Err(TokenError::FixedSupply.into()),
+        }
+
+        dest_account.amount = dest_account
+        .amount
+        .checked_add(amount)
+        .ok_or(TokenError::Overflow)?;
+
+        mint.supply = mint
+        .supply
+        .checked_add(amount)
+        .ok_or(TokenError::Overflow)?;
+
+        Account::pack(dest_account, &mut dest_account_info.data.borrow_mut())?;
+        Mint::pack(mint, &mut mint_info.data.borrow_mut())?;
+
+        Ok(())
+    }
+
+    /// Processes a [Burn](enum.TokenInstruction.html) instruction.
+    pub fn procee_burn(
+        program_id: &Pubkey,
+        accounts:&[AccountInfo],
+        amount: u64,
+        expected_decimals: Option<u8>,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+
+        let source_account_info = next_account_info(account_info_iter)?;
+        let mint_info  =next_account_info(account_info_iter)?;
+        let authority_info = next_account_info(account_info_iter)?;
+        
+        let mut source_account = Account::unpack(&source_account_info.data.borrow())?;
+        let mut mint = Mint::unpack(&mint_info.data.borrow())?;
+
+        if source_account.is_frozen() {
+            return Err(TokenError::AccountFrozen.into());
+        }
+        if source_account.is_native() {
+            return Err(TokenError::NativeNotSupported.into());
+        }
+        if source_account.amount < amount {
+            return Err(TokenError::InsufficientFunds.into());
+        }
+        if mint_info.key != &source_account.mint {
+            return  Err(TokenError::MintMismatch.into());
+        }
+
+        if let Some(expected_decimals) = expected_decimals {
+            if  expected_decimals != mint.decimals {
+                return Err(TokenError::MintDecimalsMismatch.into());
+            }
+        }
+
+        match source_account.delegate {
+            COption::Some(ref delegate) if authority_info.key == delegate => {
+                Self::validate_owner(
+                    program_id,
+                     delegate,
+                      authority_info,
+                       account_info_iter.as_slice(),
+                    )?;
+            
+                if source_account.delegated_amount < amount  {
+                    return Err(TokenError::InsufficientFunds.into());
+                }
+          
+                source_account.delegated_amount = source_account
+                    .delegated_amount
+                    .checked_sub(amount)
+                    .ok_or(TokenError::Overflow)?;
+
+                if source_account.delegated_amount == 0 {
+                    source_account.delegate = COption::None;
+                }
+            } 
+            _ => Self::validate_owner(
+                program_id,
+                &source_account.owner,
+                authority_info,
+                account_info_iter.as_slice(),
+            )?,
+        }
+
+        source_account.amount = source_account
+        .amount
+        .checked_sub(amount)
+        .ok_or(TokenError::Overflow)?;
+        
+        mint.supply = mint
+         .supply
+         .checked_sub(amount)
+         .ok_or(TokenError::Overflow)?;
+
+        Account::pack(source_account, &mut source_account_info.data.borrow_mut())?;
+        Mint::pack(mint, &mut mint_info.data.borrow_mut())?;
+        Ok(())
+    }
+
     /// Processes an [Instruction](enum.Instruction.html).
     pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], input: &[u8]) -> ProgramResult {
         let instruction = TokenInstruction::unpack(input)?;
